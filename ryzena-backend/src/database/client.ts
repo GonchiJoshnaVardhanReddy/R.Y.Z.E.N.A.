@@ -2,9 +2,12 @@
  * R.Y.Z.E.N.A. - Database Client
  * 
  * Prisma client singleton for database operations.
+ * Supports Prisma 7 with pg adapter.
  */
 
 import { PrismaClient } from '../generated/prisma/index.js';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import { createLogger } from '../shared/logger.js';
 
 const logger = createLogger({ module: 'database' });
@@ -12,18 +15,32 @@ const logger = createLogger({ module: 'database' });
 // Global Prisma client instance
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
+  pool: pg.Pool | undefined;
 };
 
 /**
- * Create Prisma client with logging
+ * Create Prisma client with pg adapter for Prisma 7
  */
 function createPrismaClient(): PrismaClient {
+  const connectionString = process.env.DATABASE_URL;
+  
+  if (!connectionString) {
+    logger.warn('DATABASE_URL not set - database features will be unavailable');
+    // Return a client that will fail on database operations
+    return new PrismaClient({
+      adapter: undefined as any,
+    });
+  }
+
+  // Create connection pool
+  const pool = new pg.Pool({ connectionString });
+  globalForPrisma.pool = pool;
+  
+  // Create adapter
+  const adapter = new PrismaPg(pool);
+  
   return new PrismaClient({
-    log: [
-      { level: 'query', emit: 'event' },
-      { level: 'error', emit: 'event' },
-      { level: 'warn', emit: 'event' },
-    ],
+    adapter,
   });
 }
 
@@ -31,30 +48,6 @@ function createPrismaClient(): PrismaClient {
  * Prisma client singleton
  */
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-// Set up logging events
-prisma.$on('query' as never, (e: { query: string; params: string; duration: number }) => {
-  logger.debug({
-    action: 'db_query',
-    query: e.query,
-    params: e.params,
-    durationMs: e.duration,
-  });
-});
-
-prisma.$on('error' as never, (e: { message: string }) => {
-  logger.error({
-    action: 'db_error',
-    message: e.message,
-  });
-});
-
-prisma.$on('warn' as never, (e: { message: string }) => {
-  logger.warn({
-    action: 'db_warn',
-    message: e.message,
-  });
-});
 
 // Prevent multiple instances in development
 if (process.env.NODE_ENV !== 'production') {
@@ -108,6 +101,13 @@ export async function checkDatabaseHealth(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Get database client (alias for prisma singleton)
+ */
+export function getDbClient(): PrismaClient {
+  return prisma;
 }
 
 export default prisma;
