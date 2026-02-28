@@ -1,6 +1,6 @@
 /**
  * R.Y.Z.E.N.A. - Resilient Youth Zero-Trust Engine for Networked Awareness
- * Phase 6: Admin Analytics & Privacy-Preserving Intelligence Layer
+ * Phase 7: Security Hardening and Production Readiness
  * 
  * Main application entry point.
  * Configures Fastify server with security middleware and routes.
@@ -19,6 +19,7 @@ import { consentRoutes } from './routes/consent.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { initializeRAG } from './modules/rag/rag.service.js';
 import { connectDatabase, disconnectDatabase, checkDatabaseHealth } from './database/client.js';
+import { getAuditService } from './security/audit.service.js';
 
 /**
  * Create and configure Fastify application
@@ -175,8 +176,8 @@ async function buildApp() {
     return reply.send({
       service: 'R.Y.Z.E.N.A.',
       name: 'Resilient Youth Zero-Trust Engine for Networked Awareness',
-      version: '6.0.0',
-      phase: 'Phase 6: Admin Analytics & Privacy-Preserving Intelligence',
+      version: '7.0.0',
+      phase: 'Phase 7: Security Hardening and Production Readiness',
       status: 'operational',
       capabilities: [
         'Email Security Analysis',
@@ -188,6 +189,11 @@ async function buildApp() {
         'Field-Level Access Control',
         'Privacy-Preserving Analytics',
         'Anomaly Detection',
+        'JWT Authentication',
+        'Role-Based Access Control',
+        'Rate Limiting',
+        'Audit Logging',
+        'Data Encryption',
       ],
       timestamp: new Date().toISOString(),
     });
@@ -199,10 +205,11 @@ async function buildApp() {
     return reply.send({
       status: dbHealthy ? 'healthy' : 'degraded',
       service: 'ryzena-threat-engine',
-      version: '6.0.0',
+      version: '7.0.0',
       environment: config.server.env,
       ollamaEnabled: config.ollama.enabled,
       databaseConnected: dbHealthy,
+      securityHardened: true,
       timestamp: new Date().toISOString(),
     });
   });
@@ -247,11 +254,19 @@ async function start() {
 
     logger.info({
       action: 'server_started',
-      message: `R.Y.Z.E.N.A. Phase 6 server running`,
+      message: `R.Y.Z.E.N.A. Phase 7 server running`,
       host: config.server.host,
       port: config.server.port,
       environment: config.server.env,
       ollamaEnabled: config.ollama.enabled,
+      securityFeatures: [
+        'JWT Authentication',
+        'RBAC',
+        'Rate Limiting',
+        'Audit Logging',
+        'Encryption',
+        'Security Headers',
+      ],
       endpoints: [
         `http://${config.server.host}:${config.server.port}/`,
         `http://${config.server.host}:${config.server.port}/api/v1/health`,
@@ -272,6 +287,10 @@ async function start() {
         logger.info({ action: 'shutdown_initiated', signal });
         
         try {
+          // Shutdown audit service
+          const auditService = getAuditService();
+          await auditService.shutdown();
+          
           await app.close();
           await disconnectDatabase();
           logger.info({ action: 'shutdown_complete' });

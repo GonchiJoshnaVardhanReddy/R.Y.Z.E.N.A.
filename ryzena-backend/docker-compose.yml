@@ -1,0 +1,144 @@
+# R.Y.Z.E.N.A. Docker Compose
+# Development and Production configurations
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # R.Y.Z.E.N.A. Backend Application
+  # ==========================================================================
+  ryzena:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ryzena-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3001
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ryzena-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ==========================================================================
+  # PostgreSQL Database
+  # ==========================================================================
+  db:
+    image: postgres:16-alpine
+    container_name: ryzena-db
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-ryzena}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-ryzena}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - ryzena-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ryzena} -d ${POSTGRES_DB:-ryzena}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ==========================================================================
+  # Ollama AI Service (Local LLM)
+  # ==========================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ryzena-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - ryzena-network
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+    # Note: GPU support requires nvidia-container-toolkit
+    # Uncomment below for GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ==========================================================================
+  # Redis Cache (Optional - for session/rate limit persistence)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: ryzena-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ryzena-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+# ==========================================================================
+# Networks
+# ==========================================================================
+networks:
+  ryzena-network:
+    driver: bridge
+    name: ryzena-network
+
+# ==========================================================================
+# Volumes
+# ==========================================================================
+volumes:
+  postgres_data:
+    name: ryzena-postgres-data
+  ollama_models:
+    name: ryzena-ollama-models
+  redis_data:
+    name: ryzena-redis-data
