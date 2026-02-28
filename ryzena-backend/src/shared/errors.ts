@@ -111,6 +111,16 @@ export class ExternalServiceError extends RyzenaError {
 }
 
 /**
+ * Application error for general use
+ */
+export class AppError extends RyzenaError {
+  constructor(message: string, statusCode: number = 500, code: string = 'APP_ERROR') {
+    super(message, code, statusCode);
+    this.name = 'AppError';
+  }
+}
+
+/**
  * Type guard to check if an error is a RyzenaError
  */
 export function isRyzenaError(error: unknown): error is RyzenaError {
@@ -150,6 +160,7 @@ export default {
   ConfigurationError,
   RateLimitError,
   ExternalServiceError,
+  AppError,
   isRyzenaError,
   formatError,
 };

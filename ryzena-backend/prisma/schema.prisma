@@ -1,0 +1,394 @@
+// R.Y.Z.E.N.A. - Prisma Schema
+// Phase 5: Consent Intelligence & Zero-Trust Data Governance Engine
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// CONSENT INTELLIGENCE MODELS
+// ============================================================================
+
+/// University service that can request student data access
+model Service {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  description   String?
+  /// Risk category: LOW, MEDIUM, HIGH, CRITICAL
+  riskCategory  RiskCategory @default(MEDIUM)
+  /// Whether the service is currently active
+  isActive      Boolean  @default(true)
+  /// API key hash for service authentication
+  apiKeyHash    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  consentRequests ConsentRequest[]
+  consentGrants   ConsentGrant[]
+  auditLogs       ConsentAuditLog[]
+
+  @@index([name])
+  @@index([riskCategory])
+}
+
+/// Request from a service to access student data
+model ConsentRequest {
+  id               String   @id @default(cuid())
+  /// Student identifier (external reference)
+  studentId        String
+  /// Service requesting access
+  serviceId        String
+  service          Service  @relation(fields: [serviceId], references: [id])
+  /// JSON array of requested field names
+  requestedFields  Json
+  /// Purpose/justification for the request
+  purpose          String
+  /// Requested access duration in days
+  requestedDuration Int
+  /// Calculated risk score (0-100)
+  riskScore        Int
+  /// Current status of the request
+  status           ConsentStatus @default(PENDING)
+  /// Optional: fields denied by student
+  deniedFields     Json?
+  /// Optional: modified duration by student
+  approvedDuration Int?
+  /// When the request was responded to
+  respondedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  consentGrant     ConsentGrant?
+  auditLogs        ConsentAuditLog[]
+
+  @@index([studentId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Active consent grant for a service to access student data
+model ConsentGrant {
+  id              String   @id @default(cuid())
+  /// Student identifier (external reference)
+  studentId       String
+  /// Service granted access
+  serviceId       String
+  service         Service  @relation(fields: [serviceId], references: [id])
+  /// Reference to the original request
+  requestId       String   @unique
+  request         ConsentRequest @relation(fields: [requestId], references: [id])
+  /// JSON array of approved field names
+  approvedFields  Json
+  /// When the grant expires
+  expiresAt       DateTime
+  /// Whether the grant has been revoked
+  isRevoked       Boolean  @default(false)
+  /// When the grant was revoked (if applicable)
+  revokedAt       DateTime?
+  /// Reason for revocation (if applicable)
+  revocationReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  auditLogs       ConsentAuditLog[]
+
+  @@index([studentId])
+  @@index([serviceId])
+  @@index([expiresAt])
+  @@index([isRevoked])
+}
+
+/// Audit log for consent-related actions
+model ConsentAuditLog {
+  id              String   @id @default(cuid())
+  /// Type of action performed
+  action          AuditAction
+  /// Student identifier involved
+  studentId       String
+  /// Service involved (optional)
+  serviceId       String?
+  service         Service? @relation(fields: [serviceId], references: [id])
+  /// Consent request involved (optional)
+  requestId       String?
+  request         ConsentRequest? @relation(fields: [requestId], references: [id])
+  /// Consent grant involved (optional)
+  grantId         String?
+  grant           ConsentGrant? @relation(fields: [grantId], references: [id])
+  /// IP address of the actor
+  ipAddress       String?
+  /// User agent of the actor
+  userAgent       String?
+  /// Additional metadata as JSON
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  @@index([studentId])
+  @@index([serviceId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+/// Risk category for services
+enum RiskCategory {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// Status of a consent request
+enum ConsentStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+  REVOKED
+}
+
+/// Types of audit actions
+enum AuditAction {
+  REQUEST_CREATED
+  REQUEST_APPROVED
+  REQUEST_DENIED
+  REQUEST_MODIFIED
+  GRANT_CREATED
+  GRANT_EXPIRED
+  GRANT_REVOKED
+  ACCESS_ALLOWED
+  ACCESS_DENIED
+  FIELD_ACCESS_DENIED
+  ADMIN_DATA_ACCESS
+}
+
+// ============================================================================
+// PHASE 6: ADMIN ANALYTICS & PRIVACY-PRESERVING INTELLIGENCE
+// ============================================================================
+
+/// Risk profile for students (from Phase 4 Digital Twin)
+model RiskProfile {
+  id              String   @id @default(cuid())
+  studentId       String   @unique
+  /// Current risk score (0-100)
+  riskScore       Int      @default(50)
+  /// Risk level derived from score
+  riskLevel       RiskLevel @default(MEDIUM)
+  /// Department/college (for aggregation)
+  department      String?
+  /// Number of phishing emails received
+  phishingCount   Int      @default(0)
+  /// Number of threats clicked
+  threatsClicked  Int      @default(0)
+  /// Last activity timestamp
+  lastActivity    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  riskEvents      RiskEvent[]
+  weeklySnapshots WeeklySnapshot[]
+
+  @@index([studentId])
+  @@index([riskLevel])
+  @@index([department])
+  @@index([riskScore])
+}
+
+/// Individual risk events for audit trail
+model RiskEvent {
+  id              String   @id @default(cuid())
+  /// Reference to risk profile
+  profileId       String
+  profile         RiskProfile @relation(fields: [profileId], references: [id])
+  /// Type of event
+  eventType       RiskEventType
+  /// Impact on risk score (positive or negative)
+  impact          Int
+  /// Description of the event
+  description     String
+  /// Source of the event (email, consent, etc.)
+  source          String
+  /// Additional metadata
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  @@index([profileId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@index([source])
+}
+
+/// Weekly snapshots for trend analysis
+model WeeklySnapshot {
+  id              String   @id @default(cuid())
+  /// Reference to risk profile
+  profileId       String
+  profile         RiskProfile @relation(fields: [profileId], references: [id])
+  /// Week number (ISO week)
+  weekNumber      Int
+  /// Year
+  year            Int
+  /// Risk score at end of week
+  riskScore       Int
+  /// Number of events that week
+  eventCount      Int      @default(0)
+  /// Number of phishing emails that week
+  phishingCount   Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@unique([profileId, year, weekNumber])
+  @@index([year, weekNumber])
+  @@index([profileId])
+}
+
+/// Threat detection logs for analytics
+model ThreatLog {
+  id              String   @id @default(cuid())
+  /// Email identifier from threat detection
+  emailId         String   @unique
+  /// Student who received the email (optional for privacy)
+  studentId       String?
+  /// Department (for aggregation)
+  department      String?
+  /// Detection status: SAFE or SUSPICIOUS
+  status          ThreatStatus
+  /// Trust score (0-100)
+  trustScore      Int
+  /// Phishing probability (0-1)
+  phishingProbability Float
+  /// JSON array of detected phishing signals
+  phishingSignals Json
+  /// Number of URLs scanned
+  urlsScanned     Int      @default(0)
+  /// Number of high-risk URLs found
+  highRiskUrls    Int      @default(0)
+  /// Whether malware was detected
+  malwareDetected Boolean  @default(false)
+  /// Whether user clicked any links
+  userClicked     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([status])
+  @@index([department])
+  @@index([createdAt])
+  @@index([trustScore])
+}
+
+/// Admin access audit log
+model AdminAuditLog {
+  id              String   @id @default(cuid())
+  /// Admin user identifier
+  adminId         String
+  /// Action performed
+  action          AdminAction
+  /// Endpoint accessed
+  endpoint        String
+  /// Query parameters (anonymized)
+  queryParams     Json?
+  /// IP address
+  ipAddress       String?
+  /// Response summary (no PII)
+  responseSummary String?
+  createdAt       DateTime @default(now())
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+/// Anomaly reports generated by the system
+model AnomalyReport {
+  id              String   @id @default(cuid())
+  /// Type of anomaly
+  anomalyType     AnomalyType
+  /// Severity level
+  severity        AnomalySeverity
+  /// Human-readable description
+  description     String
+  /// Affected scope (university, department, etc.)
+  scope           String
+  /// Statistical details
+  statistics      Json
+  /// Whether the anomaly has been reviewed
+  isReviewed      Boolean  @default(false)
+  /// Admin who reviewed (if any)
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  detectedAt      DateTime @default(now())
+
+  @@index([anomalyType])
+  @@index([severity])
+  @@index([isReviewed])
+  @@index([detectedAt])
+}
+
+// ============================================================================
+// PHASE 6 ENUMS
+// ============================================================================
+
+/// Risk levels for profiles
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// Types of risk events
+enum RiskEventType {
+  PHISHING_RECEIVED
+  PHISHING_CLICKED
+  CONSENT_APPROVED_HIGH_RISK
+  CONSENT_DENIED_HIGH_RISK
+  CONSENT_APPROVED_LOW_RISK
+  CONSENT_REVOKED
+  TRAINING_COMPLETED
+  QUIZ_PASSED
+  QUIZ_FAILED
+  MANUAL_ADJUSTMENT
+}
+
+/// Threat detection status
+enum ThreatStatus {
+  SAFE
+  SUSPICIOUS
+}
+
+/// Admin actions for audit
+enum AdminAction {
+  VIEW_OVERVIEW
+  VIEW_DISTRIBUTION
+  VIEW_TRENDS
+  VIEW_ANOMALIES
+  EXPORT_DATA
+  REVIEW_ANOMALY
+}
+
+/// Types of anomalies
+enum AnomalyType {
+  PHISHING_SPIKE
+  RISK_SCORE_DROP
+  CONSENT_APPROVAL_SURGE
+  CLICK_RATE_INCREASE
+  DEPARTMENT_RISK_SPIKE
+}
+
+/// Anomaly severity levels
+enum AnomalySeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
